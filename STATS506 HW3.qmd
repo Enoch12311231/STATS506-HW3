@@ -1,0 +1,445 @@
+---
+ackag---
+title: "STATS506 HW3"
+author: "Yinuo Liu"
+format:
+  html:
+    embed-resources: true
+    code-fold: true
+---
+
+```{r}
+#1a
+library(haven)
+AUX=read_xpt("E://常用软件//AUX_I.xpt")
+DEMO=read_xpt("E://常用软件//DEMO_I.xpt")
+AUX
+DEMO
+merged_data=merge(AUX,DEMO,by="SEQN",all=FALSE)
+class(merged_data)
+merged_data
+print(dim(merged_data))
+```
+
+```{r}
+#search the usage of parameter useNA with chatgpt
+#1b
+variables=c("RIAGENDR","DMDCITZN","DMDHHSZA","INDHHIN2")
+lapply(merged_data[variables],table,useNA="ifany")
+
+#convert "Gender"
+merged_data$RIAGENDR=factor(
+  merged_data$RIAGENDR,
+  levels=c(1,2),
+  labels=c("Male","Female")
+)
+
+#clean and convert "Citizenship status"
+merged_data$DMDCITZN[merged_data$DMDCITZN %in% c(7,9)]=NA
+merged_data$DMDCITZN=factor(
+  merged_data$DMDCITZN,
+  levels=c(1,2),
+  labels=c("US Citizen","Non-US Citizen")
+)
+
+#convert "Number of children"
+merged_data$DMDHHSZA=factor(
+  merged_data$DMDHHSZA,
+  levels=c(0,1,2,3),
+  labels=c("0","1","2","3 or more"),
+  ordered=TRUE
+)
+
+#clean and convert "Annual household income"
+merged_data$INDHHIN2[merged_data$INDHHIN2 %in% c(12,13,77,99)]=NA
+merged_data$INDHHIN2=factor(
+  merged_data$INDHHIN2,
+  levels=c(1:10,14,15),
+  labels=c(
+    "$0-4,999",
+    "$5,000-9,999",
+    "$10,000-14,999",
+    "$15,000-19,999",
+    "$20,000-24,999",
+    "$25,000-34,999",
+    "$35,000-44,999",
+    "$45,000-54,999",
+    "$55,000-64,999",
+    "$65,000-74,999",
+    "$75,000-99,999",
+    "$100,000+"),
+  ordered=TRUE
+)
+lapply(merged_data[variables],table,useNA="ifany")
+```
+
+```{r}
+#search the usage of Pseudo_R2 and do.call function in R with chatgpt
+#1c
+new_data=merge(AUX,DEMO,by="SEQN",all=FALSE)
+
+new_data$gender=factor(
+  new_data$RIAGENDR,
+  levels=c(1,2),
+  labels=c("Male","Female")
+)
+
+new_data$citizenship=factor(
+  new_data$DMDCITZN,
+  levels=c(1,2),
+  labels=c("US Citizen","Non-US Citizen")
+)
+
+#convert "Number of children" into continuous variable and code as 3 to the households with three or more children
+new_data$children=as.numeric(new_data$DMDHHSZA)
+
+#use the middle points of every range in "Annual household income" as its representative value
+mid_income=c("1"=2500,
+             "2"=7500,
+             "3"=12500,
+             "4"=17500,
+             "5"=22500,
+             "6"=30000,
+             "7"=40000,
+             "8"=50000,
+             "9"=60000,
+             "10"=70000,
+             "14"=87500,
+             "15"=125000)
+new_data$income=unname(mid_income[as.character(new_data$INDHHIN2)])
+
+new_data$AUXTWIDR[new_data$AUXTWIDR %in% c(555, 777, 888)]=NA
+new_data$AUXTWIDL[new_data$AUXTWIDL %in% c(555, 777, 888)]=NA
+
+#model 1R
+m1R=glm(
+  AUXTWIDR~gender,
+  data=new_data,
+  family=poisson(link="log")
+)
+
+#model 2R
+m2R=glm(
+  AUXTWIDR~gender+citizenship+children+income,
+  data=new_data,
+  family=poisson(link="log")
+)
+
+# Model 1L
+m1L=glm(
+  AUXTWIDL~gender,
+  data=new_data,
+  family=poisson(link="log")
+)
+
+# Model 2L
+m2L=glm(
+  AUXTWIDL~gender+citizenship+children+income,
+  data=new_data,
+  family=poisson(link="log")
+)
+
+#IRR table
+#function inputs are the models and their names, with the output of the data.frame including model, variable and their IRR.
+get_IRR=function(model,model_name){
+  s=summary(model)$coefficients
+  data.frame(
+    Model=model_name,
+    Variable=rownames(s),
+    IRR=sprintf(
+      "%.3f",exp(s[,1])
+    )
+  )
+}
+
+models_IRR=list(
+  get_IRR(m1R,"1R"),
+  get_IRR(m2R,"2R"),
+  get_IRR(m1L,"1L"),
+  get_IRR(m2L,"2L")
+)
+
+IRR_table=do.call(
+  rbind,models_IRR
+)
+
+knitr::kable(
+  IRR_table,
+  caption="Poisson Regression Results: IRR"
+)
+
+#N, Pseudo-R^2 and AIC table
+library(pscl)
+#function inputs are the models and their names, with the output of the data.frame including model, numbers, Pseudo-R^2 and their AIC.
+get_stats=function(model,model_name){
+    data.frame(
+    Model=model_name,
+    N=nobs(model),
+    Pseudo_R2=round(pscl::pR2(model)["McFadden"],3),
+    AIC=round(AIC(model),1)
+  )
+}
+
+models_stats=list(
+  get_stats(m1R,"1R"),
+  get_stats(m2R,"2R"),
+  get_stats(m1L,"1L"),
+  get_stats(m2L,"2L")
+)
+
+stats_table=do.call(
+  rbind,models_stats)
+
+knitr::kable(
+  stats_table,
+  caption="Poisson Regression Results: Statistics"
+)
+```
+
+```{r}
+#1d
+s=summary(m2L)$coefficients
+IRR=exp(s["genderFemale",1])
+p=s["genderFemale",4]
+data.frame(IRR=IRR,p_value=p)
+```
+
+Since p value is much smaller than 0.05, we reject the null hypothesis that the IRR=1. And because the IRR number is 1.0189, so it indicates that females have a statistically significantly higher predicted mean left-ear tympanometric width than males, by approximately 1.89%.
+
+```{r}
+#search the usage of type parameter and update function in R with chatgpt
+#control the only variable--gender
+d_fit=model.frame(m2L)
+
+pred_data=data.frame(
+  gender=factor(c("Male","Female"),
+                levels=levels(d_fit$gender)),
+  citizenship=factor(
+    c("US Citizen","US Citizen"),
+    levels=levels(d_fit$citizenship)
+  ),
+  children=rep(mean(d_fit$children),2),
+  income=rep(mean(d_fit$income),2)
+)
+
+# Predict left-ear tympanometric width
+pred_data$predicted=predict(
+  m2L,
+  newdata=pred_data,
+  type="response"
+)
+pred_data
+
+#testing
+#Model without gender
+m2L_null=update(m2L,.~.-gender)
+
+#Likelihood ratio test
+anova(m2L_null,m2L,test="Chisq")
+```
+
+Since the p value is 1.826e-07, much smaller than 0.001, we reject the null hypothesis that males and females have equal predicted mean left-ear tympanometric widths.
+
+```{r}
+#the functions all just the give the answer to the questions.
+#2a
+library(DBI)
+library(RSQLite)
+library(microbenchmark)
+db<-dbConnect(SQLite(),"E://常用软件//sakila_master.db")
+
+#R method
+q1_r=function(){
+  store=dbGetQuery(db,"SELECT store_id FROM store")
+  customer=dbGetQuery(db,"SELECT store_id,active FROM customer")
+  
+  result=do.call(rbind,lapply(store$store_id,function(id){
+    x=customer$active[customer$store_id==id]
+    data.frame(
+      store_id=id,
+      n_customers=length(x),
+      active_pct=if(length(x)>0)100*mean(x==1)else NA_real_)
+  }))
+  
+  result$active_pct=round(result$active_pct,2)
+  result[order(result$store_id),]
+}
+q1_r()
+
+#SQL method
+q1_sql=function(){
+  dbGetQuery(db,"
+    SELECT s.store_id,COUNT(c.customer_id) AS n_customers,
+    ROUND(100.0*AVG(c.active),2) AS active_pct
+    FROM store s
+    LEFT JOIN customer c ON s.store_id=c.store_id
+    GROUP BY s.store_id
+    ORDER BY s.store_id
+  ")
+}
+q1_sql()
+```
+
+```{r}
+#2b
+#R method
+q2_r=function(){
+  staff=dbGetQuery(db,"SELECT first_name,last_name,address_id FROM staff")
+  address=dbGetQuery(db,"SELECT address_id,city_id FROM address")
+  city=dbGetQuery(db,"SELECT city_id,country_id FROM city")
+  country=dbGetQuery(db,"SELECT country_id,country FROM country")
+  
+  x=merge(staff,address,by="address_id")
+  x=merge(x,city,by="city_id")
+  x=merge(x,country,by="country_id")
+  
+  result=data.frame(
+    name=paste(x$first_name,x$last_name),
+    country=x$country
+  )
+  
+  result[order(result$name),]
+}
+q2_r()
+
+#SQL method
+q2_sql=function(){
+  dbGetQuery(db,"
+    SELECT s.first_name||' '||s.last_name AS name,co.country
+    FROM staff s
+    JOIN address a ON s.address_id=a.address_id
+    JOIN city ci ON a.city_id=ci.city_id
+    JOIN country co ON ci.country_id=co.country_id
+    ORDER BY name
+  ")
+}
+q2_sql()
+```
+
+```{r}
+#2c
+#R method
+q3_r=function(){
+  payment=dbGetQuery(db,"SELECT rental_id,amount FROM payment")
+  rental=dbGetQuery(db,"SELECT rental_id,inventory_id FROM rental")
+  inventory=dbGetQuery(db,"SELECT inventory_id,film_id FROM inventory")
+  film=dbGetQuery(db,"SELECT film_id,title FROM film")
+  
+  max_payment=max(payment$amount,na.rm=TRUE)
+  payment=payment[payment$amount==max_payment,]
+  
+  x=merge(payment,rental,by="rental_id")
+  x=merge(x,inventory,by="inventory_id")
+  x=merge(x,film,by="film_id")
+  
+  data.frame(title=sort(unique(x$title)))
+}
+q3_r()
+
+#SQL method
+q3_sql=function(){
+  dbGetQuery(db,"
+    SELECT DISTINCT f.title
+    FROM payment p
+    JOIN rental r ON p.rental_id=r.rental_id
+    JOIN inventory i ON r.inventory_id=i.inventory_id
+    JOIN film f ON i.film_id=f.film_id
+    WHERE p.amount=(SELECT MAX(amount) FROM payment)
+    ORDER BY f.title
+  ")
+}
+q3_sql()
+```
+
+```{r}
+#micronbenchmark testing
+mb1=microbenchmark(R=q1_r(),SQL=q1_sql(),times=100)
+mb2=microbenchmark(R=q2_r(),SQL=q2_sql(),times=100)
+mb3=microbenchmark(R=q3_r(),SQL=q3_sql(),times=100)
+
+print(mb1)
+print(mb2)
+print(mb3)
+```
+
+No matter which questions, we can always see from the microbenchmark testing that SQL approach has the shorter time and the quicker speed( from mean and median figures).
+
+```{r}
+#3a
+au=read.csv("E://常用软件//au-500.csv")
+com=grepl("\\.com$|\\.com/$",tolower(au$web))
+mean(com)*100
+```
+
+```{r}
+#3b
+domain=sub(".*@","",tolower(au$email))
+freq=sort(table(domain),decreasing=TRUE)
+head(freq)
+freq[freq==max(freq)]
+```
+
+```{r}
+#3c
+p1=mean(grepl("[^[:alpha:][:space:],]",au$company_name))
+p2=mean(grepl("[^[:alpha:][:space:],&]",au$company_name))
+
+p1
+p2
+```
+
+```{r}
+#3d
+format_phone=function(x){
+  digits=gsub("[^0-9]","",x)
+  
+  paste0(
+    substr(digits,1,4),"-",
+    substr(digits,5,7),"-",
+    substr(digits,8,10)
+  )
+}
+
+au$phone1=format_phone(au$phone1)
+au$phone2=format_phone(au$phone2)
+
+head(au$phone1,10)
+head(au$phone2,10)
+```
+
+```{r}
+#3e
+apt=regmatches(au$address,regexpr("[0-9]+$",au$address))
+apt=as.numeric(apt)
+apt=apt[!is.na(apt)&apt>0]
+
+hist(log(apt),
+     main="Log of Apartment Numbers",
+     xlab="Log(Apartment Number)",
+     ylab="Frequency")
+```
+
+```{r}
+#3f
+first_digit=as.numeric(substr(as.character(apt),1,1))
+observed=table(factor(first_digit,levels=1:9))
+observed
+
+Benford=log10(1+1/(1:9))
+comparison=data.frame(
+  digit=1:9,
+  observed=round(as.numeric(prop.table(observed)),3),
+  Benford=round(Benford,3)
+)
+comparison
+
+#Chi-square Test
+test=chisq.test(observed,p=Benford)
+test
+```
+
+We use Chi-square test here to see if the dataset satisfies the Benford's law distribution. Since the p value is 1.67e-10, much smaller than 0.001, we reject the null hypothesis, which means that it doesn't appear to follow the Benford's law. As a real data, apartment numbers always appear to start with 1 or 2, they don't naturally occur, so in my opinion, it may not be expected to follow Benford's law in real data.
+
+## Github Repository:
+
+##  
